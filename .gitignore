@@ -1,6 +1,15 @@
+# Local secrets and environments
 .streamlit/secrets.toml
-mychefApp\__pycache__
-mychefApp\ai_api\__pycache__
-mychefApp\functions\__pycache__
+.env
+.env.*
+!.env.example
+.venv/
+
+# Generated Python files
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.test-artifacts/
+test-results/
+
 mychefApp/ai_api/prompt_instructions
-tests

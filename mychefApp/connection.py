@@ -2,7 +2,18 @@ import streamlit as st
 import cloudinary
 import time
 import functools
-from sqlalchemy.exc import OperationalError, InterfaceError, DBAPIError
+import os
+from sqlalchemy.exc import DBAPIError
+
+
+def genai_http_options():
+    options = {"timeout": 120000, "retry_options": {
+        "attempts": 2, "http_status_codes": [503], "initial_delay": 1, "max_delay": 2,
+    }}
+    if os.environ.get("MYCHEF_E2E_IPV4") == "1":
+        import httpx
+        options["client_args"] = {"transport": httpx.HTTPTransport(local_address="0.0.0.0")}
+    return options
 
 def init_connection():
     """
@@ -15,6 +26,7 @@ def init_connection():
         pool_pre_ping=True,
         pool_recycle=180,
         connect_args={
+            "connect_timeout": 10,
             "keepalives": 1,
             "keepalives_idle": 30,
             "keepalives_interval": 10,
@@ -23,55 +35,49 @@ def init_connection():
     )
 
 def reset_connection():
-    """Resets the cached database connection so a fresh pool is created."""
-    try:
-        conn = st.connection('neon', type='sql')
-        conn.reset()
-    except Exception:
-        pass
+    """Reset the same configured connection used by database operations."""
+    init_connection().reset()
+
 
 def is_transient_db_error(exc: Exception) -> bool:
-    """Detects whether an exception is a transient disconnect/SSL failure."""
-    if isinstance(exc, (OperationalError, InterfaceError)):
+    """Recognize invalidated DBAPI connections, not arbitrary application errors."""
+    if not isinstance(exc, DBAPIError):
+        return False
+    if exc.connection_invalidated:
         return True
-    if isinstance(exc, DBAPIError) and exc.connection_invalidated:
-        return True
-    msg = str(exc).lower()
-    transient_indicators = [
-        "ssl syscall error",
-        "eof detected",
-        "connection already closed",
-        "server closed the connection",
-        "connection reset by peer",
-        "could not connect to server",
-        "broken pipe"
-    ]
-    return any(indicator in msg for indicator in transient_indicators)
+    sqlstate = getattr(exc.orig, "sqlstate", None) or getattr(exc.orig, "pgcode", None)
+    return bool(sqlstate and sqlstate.startswith("08"))
 
-def with_db_retry(max_retries: int = 3, initial_delay: float = 1.0, backoff_factor: float = 2.0):
+
+def with_db_retry(max_retries: int = 3, initial_delay: float = 1.0,
+                  backoff_factor: float = 2.0, *, read_only: bool = False):
+    """Retry explicitly read-only work; never replay writes after a lost response.
+
+    max_retries is the maximum number of attempts, including the first call.
+    Database errors return None for existing UI callers. Programming errors propagate.
     """
-    Decorator that catches transient database errors, resets the connection,
-    and retries the operation with exponential backoff.
-    """
+    if max_retries < 1 or initial_delay < 0 or backoff_factor < 1:
+        raise ValueError("Invalid database retry settings")
+
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             delay = initial_delay
-            for attempt in range(1, max_retries + 1):
+            attempts = max_retries if read_only else 1
+            for attempt in range(attempts):
                 try:
                     return func(*args, **kwargs)
-                except Exception as e:
-                    if is_transient_db_error(e) and attempt < max_retries:
+                except DBAPIError as exc:
+                    transient = is_transient_db_error(exc)
+                    if transient:
                         reset_connection()
+                    if transient and attempt + 1 < attempts:
                         time.sleep(delay)
                         delay *= backoff_factor
                         continue
-                    # Retries exhausted or non-transient error
-                    reset_connection()
-                    st.error("A database connection error occurred. Please try again or contact admin@gkldevelopment.com.")
-                    print(f"Database error in {func.__name__} (attempt {attempt}/{max_retries}): {e}")
+                    # SQLAlchemy exception text can contain passwords and other parameters.
+                    st.error("The database operation could not be confirmed. Refresh before trying again.")
                     return None
-            return None
         return wrapper
     return decorator
 

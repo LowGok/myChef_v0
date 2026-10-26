@@ -5,6 +5,9 @@ from imageGenerator import imageGenerator, uploadImageToCloud
 from db_insert_functions import databaseRecipesStorage, databaseIngredientsStorage, databaseImageStorage
 from authentication import fetch_user_info
 from connection import configure_cloudinary
+from google.genai.errors import APIError
+from generationTrace import record_stage
+from db_fetch_functions import fetch_user_recipes, fetch_recipes_ingredients
 
 ############################## GENERATE MEAL PLAN ##############################
 
@@ -46,18 +49,20 @@ def selectMealPref():
             }
         st.rerun()
 
-def generateImage(meal_id, ingredient_list):
+def generateImage(meal_id, ingredient_list, meal_title=None):
     """
     Orchestrates the entire process of image generation: generate, upload, store link.
     """
     configure_cloudinary()
+    record_stage("image_requested", meal_id=int(meal_id))
     
-    image_data = imageGenerator(meal=meal_id, ingredient_list=ingredient_list)
+    image_data = imageGenerator(meal=meal_title or "prepared meal", ingredient_list=ingredient_list)
     # Corrected check for image generation failure
     if image_data is False:
-        st.error('Failed generating meals image. Please contact us: admin@gkldevelopment.com')
+        st.warning("The meal image is unavailable. Your saved recipe will use a placeholder.")
         print("Workflow failed: Image generation failed.")
         return None
+    record_stage("image_received", bytes=len(image_data))
     cloudinary_response = uploadImageToCloud(image_data)
     if cloudinary_response is None:
         print("Workflow failed: Cloudinary upload failed.")
@@ -67,10 +72,12 @@ def generateImage(meal_id, ingredient_list):
     if not image_link or not cloudinary_public_id:
         print("Workflow failed: Missing public ID or secure URL from Cloudinary.")
         return None
+    record_stage("image_uploaded")
     db_record_id = databaseImageStorage(cloudinary_pub_id=cloudinary_public_id, image_url=image_link, meal_id=meal_id)
-    if db_record_id is None:
+    if not db_record_id:
         print("Workflow failed: Storing in Neon DB failed.")
         return None
+    record_stage("image_saved", meal_id=int(meal_id))
     return True
     
 def generateMealPlan(userId):
@@ -80,7 +87,8 @@ def generateMealPlan(userId):
     """
     user = int(userId)
     ss = st.session_state
-    ssp = ss["mealPreferences"]
+    # Consume one explicit request so reruns cannot silently regenerate paid output.
+    ssp = ss.pop("mealPreferences")
     # Crafting prompt
     prompt_text = f"""
     Number of recipes: {7 if len(ssp["days"]) == 0 else len(ssp["days"])}
@@ -121,6 +129,7 @@ def generateMealPlan(userId):
             # Saving shopping list
             mealId = databaseRecipesStorage(recipesData=recipesData, userId=user)
             if mealId:
+                record_stage("recipes_saved", count=len(mealId), meal_ids=list(mealId.values()))
                 st.write("Crafting your shopping list...")
             else:
                 status.update(label="Failed to save your meal plan. Please try again", state="error", expanded=False)
@@ -129,6 +138,9 @@ def generateMealPlan(userId):
             # Uploading Ingredients to DB
             ingredients_uploaded = databaseIngredientsStorage(recipesData=recipesData, meal_id_dict=mealId, userId=user)
             if ingredients_uploaded:    
+                record_stage("ingredients_saved")
+                fetch_user_recipes.clear()
+                fetch_recipes_ingredients.clear()
                 st.write("Generating meals images...")
             else:
                 status.update(label="Failed to save your ingredients. Please try again", state="error", expanded=False)
@@ -140,6 +152,7 @@ def generateMealPlan(userId):
             # print("----------------------")
             # Generating Meals Images
             recipesList = recipesData['recipes']
+            image_failures = 0
             for index in range(len(recipesList)):
                 try:
                     recipeId = mealId[recipesList[index]["Recipe Title"]]
@@ -156,22 +169,28 @@ def generateMealPlan(userId):
                         continue
                     print(f"Generating image for meal ID: {recipeId} with ingredients: {ingredientsList}")
                     # Call the image generation function
-                    image_generation_success = generateImage(meal_id=recipeId, ingredient_list=ingredientsList)
+                    image_generation_success = generateImage(meal_id=recipeId, ingredient_list=ingredientsList,
+                                                            meal_title=recipesList[index]["Recipe Title"])
                     # Check if image generation failed
                     if not image_generation_success:
-                        status.update(label="Failed to generate and upload your images. Please try again", state="error", expanded=False)
-                        st.stop()
+                        image_failures += 1
+                        record_stage("image_unavailable", reason="save_or_upload_failed")
                 except KeyError as e:
-                    print(f"An error occurred: Missing key {e} for recipe at index {index}.")
-                    # Optionally, update the status and stop or continue
-                    status.update(label=f"An error occurred while processing recipes. Missing data: {e}", state="error", expanded=False)
-                    st.stop()
+                    image_failures += 1
+                    record_stage("image_unavailable", reason="invalid_recipe_data")
+                except APIError as e:
+                    image_failures += 1
+                    record_stage("image_unavailable", status_code=e.code)
                 except Exception as e:
-                    print(f"An unexpected error occurred at index {index}: {e}")
-                    status.update(label="An unexpected error occurred. Please try again.", state="error", expanded=False)
-                    st.stop()
+                    image_failures += 1
+                    record_stage("image_unavailable", error_type=type(e).__name__)
+            if image_failures:
+                ss["image_generation_notice"] = "Your meals and ingredients are saved. Images are unavailable; placeholders are shown."
+            else:
+                ss.pop("image_generation_notice", None)
             del ss.user_instance
             if fetch_user_info(email=ss["email"]):
+                record_stage("menu_complete")
                 status.update(label="Meal plan generated!", state="complete", expanded=False)
             else:
                 status.update(label="Failed to generate and upload your images. Please try again", state="error", expanded=False)
@@ -179,9 +198,15 @@ def generateMealPlan(userId):
         st.success("Your weekly meal plan will be displayed shortly.")
         time.sleep(2)
         st.rerun()
+    except APIError as e:
+        if e.code == 429:
+            st.error("Gemini's quota is exhausted. Wait for the quota to reset or configure a key with available quota.")
+        else:
+            st.error(f"Gemini could not generate the meal plan (HTTP {e.code}). Please try again later.")
+        st.stop()
     except Exception as e:
         st.error("We couldn't generate your meal. Please try again or contact us: admin@gkldevelopment.com")
         # st.warning(f"Failed because of: {e}") | ONLY FOR DEBUG PURPOSES
-        print(e)
+        print(f"Meal generation failed: {type(e).__name__}")
         st.stop()
 

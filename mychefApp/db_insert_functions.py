@@ -2,13 +2,14 @@ import streamlit as st
 from sqlalchemy.sql import text
 import pandas as pd
 from datetime import date
+from uuid import uuid4
 from connection import init_connection, with_db_retry
 
 @with_db_retry(max_retries=3)
-def databaseRecipesStorage(recipesData, userId=1):
+def databaseRecipesStorage(recipesData, userId=None):
     """The function takes recipesData already JSON parsed 
     and deconstructs it to store it in the database"""
-    if userId and recipesData:
+    if userId and recipesData and recipesData.get("recipes"):
         # Insert SQL scripts
         insert_sql = """
         INSERT INTO meals (
@@ -46,16 +47,16 @@ def databaseRecipesStorage(recipesData, userId=1):
         
         recipes = recipesData.get('recipes', [])
 
-        # Defining date in int for meal_id
         today = date.today()
-        str_date = today.strftime("%Y%m%d")
         meal_id_dict = {}
         
         # Establishing connection with database
         conn = init_connection()
         with conn.session as s:
-            for i, recipe in enumerate(recipes):
-                meal_id = int(str_date + str(i) + str(userId))
+            for recipe in recipes:
+                # Positive random BIGINTs allow another generation on the same day.
+                # The ORM migration will move allocation to the database sequence.
+                meal_id = uuid4().int >> 65
                 meal_data = {
                     "creator_id": userId,
                     "meal_id": meal_id,
@@ -82,10 +83,10 @@ def databaseRecipesStorage(recipesData, userId=1):
         return None
 
 @with_db_retry(max_retries=3)
-def databaseIngredientsStorage(recipesData, meal_id_dict, userId=1):
+def databaseIngredientsStorage(recipesData, meal_id_dict, userId=None):
     """The function takes recipesData already JSON parsed 
     and deconstructs it to store it in the database"""
-    if userId and recipesData and meal_id_dict:
+    if userId and recipesData and recipesData.get("recipes") and meal_id_dict:
         insert_sql = """
         INSERT INTO ingredients (
             pk_ingredients,
@@ -175,9 +176,9 @@ def updateCredentials(firstname=None, lastname=None, age=None, username=None, us
         """
         conn = init_connection()
         with conn.session as s:
-            s.execute(text(preferencesQuery), params=variables_dict)
+            result = s.execute(text(preferencesQuery), params=variables_dict)
             s.commit()
-            return True
+            return result.rowcount == 1
     else:
         st.error("Invalid UserId or credentials, please contact us: admin@gkldevelopment.com")
         return False
@@ -211,9 +212,9 @@ def pushPreferences(technique, diet, allergens, dislikes, efforts, userId):
         """
         conn = init_connection()
         with conn.session as s:
-            s.execute(text(preferencesQuery), params=variables_dict)
+            result = s.execute(text(preferencesQuery), params=variables_dict)
             s.commit()
-            return True
+            return result.rowcount == 1
     else:
         st.error("Invalid UserId, please contact us: admin@gkldevelopment.com")
         return False
@@ -246,9 +247,9 @@ def databaseImageStorage(cloudinary_pub_id, image_url, meal_id, user_id=None):
         """
         conn = init_connection()
         with conn.session as s:
-            s.execute(text(push_query), params=variables_dict)
+            result = s.execute(text(push_query), params=variables_dict)
             s.commit()
-            return True
+            return result.rowcount == 1
     else:
         st.error("Invalid UserId, please contact us: admin@gkldevelopment.com")
         return False
