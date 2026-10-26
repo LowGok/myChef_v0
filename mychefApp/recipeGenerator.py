@@ -74,7 +74,7 @@ def gemini_ai_api(input, temp):
         api_key=st.secrets["gemini_api_key"],
     )
 
-    model = "gemini-2.0-flash"
+    model = "gemini-3.8-flash"
     contents = [
         types.Content(
             role="user",
