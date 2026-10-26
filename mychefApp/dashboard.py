@@ -16,6 +16,8 @@ with st.container():
     st.text('Explore and cook delicious recipes for your family and yourself! 🥘')
 
 st.divider()
+if ss.get("image_generation_notice"):
+    st.warning(ss["image_generation_notice"])
 
 # Defining CSS rules
 st.html(
@@ -71,10 +73,14 @@ else:
     try:
         mealYear, mealWeek, _ = lastMeal.isocalendar() # Retrieving year and weekNum from user lastMeal generation date
         if mealWeek == todayWeek and mealYear == todayYear:
-            if ss.selected_meal:
+            if "mealPreferences" in ss:
+                generateMealPlans.generateMealPlan(ss.user_instance.user_id)
+            elif ss.selected_meal:
                 instructions(ss.selected_meal)
             else:
                 mealCards()
+                if st.button("Generate another meal plan", use_container_width=True):
+                    generateMealPlans.selectMealPref()
         else:
             # Defining page header
             st.subheader('No Meals Generated Yet...')

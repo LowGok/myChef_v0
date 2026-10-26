@@ -9,5 +9,7 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.test-artifacts/
+test-results/
 
 mychefApp/ai_api/prompt_instructions

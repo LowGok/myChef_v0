@@ -12,11 +12,9 @@ st.set_page_config(
     })
 
 import time # For demonstration of re-run pause
-from authentication import authenticate, register, fetch_user_info, logout
-from streamlit_cookies_controller import CookieController
+from authentication import authenticate, register, logout
 
 ss = st.session_state
-controller = CookieController()
 
 # Logo image
 st.logo("./img/logo/row_no_sentence.png", size = "large")
@@ -26,22 +24,8 @@ if "authenticated" not in ss:
     ss["authenticated"] = False
     ss["email"] = None
 
-# Verification of existing session
-if not ss["authenticated"]:
-    user_email_from_cookie = controller.get("logged_in_user")
-    if user_email_from_cookie:
-        # You might want to re-validate the user_id from the cookie with your backend
-        # to ensure it's still a valid session/user. For simplicity, we're just
-        # trusting the cookie value here for demonstration.
-        if fetch_user_info(email=user_email_from_cookie):
-            ss["authenticated"] = True
-            ss["email"] = user_email_from_cookie
-        else:
-            st.error("Failed to fetch user information after registration. Please try logging in manually.")
-            time.sleep(2)
-        st.success(f"Welcome back, {ss.user_instance.firstName}!")
-        time.sleep(2) # A small pause before rerunning to update UI
-        st.rerun()
+# Browser cookies are user-controlled and cannot establish an authenticated session.
+# A new Streamlit session must verify credentials until server-validated tokens exist.
 
 if ss["authenticated"]:
     if "user_instance" not in ss:
@@ -52,7 +36,7 @@ if ss["authenticated"]:
     if st.sidebar.button("Be an early adopter!", use_container_width=True): # To be replaced by st.sidebar.link_button("Check our crowdfunding!", use_container_width=True, url=""): // and remove warning
         st.sidebar.warning("Not yet live. Come back in a couple of days!")
     if st.sidebar.button("Logout", use_container_width=True, type="primary", key="logout"):
-        if logout(controller):
+        if logout():
             st.sidebar.success("You have been logged out.")
             time.sleep(1)
             st.rerun() 
@@ -108,7 +92,7 @@ else:
         st.text("Your weekly meal planner to make cooking meals enjoyable!")
         signIn, signUp = st.tabs(["Sign-In :unlock:", "Sign-Up :receipt:"])
         with signIn:
-            authenticate(controller)
+            authenticate()
         with signUp:
             register()
     # st.link_button("Intagram", url="https://www.instagram.com/mychef.be/", type='tertiary', icon='🔗', use_container_width=False)

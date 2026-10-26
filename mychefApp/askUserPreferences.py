@@ -4,7 +4,6 @@ from authentication import fetch_user_info
 import time
 
 ss = st.session_state
-ss_user = st.session_state.user_instance
 sep = ", "
 @st.dialog("We'd love to learn more about you!")
 def askUserPreferences():
@@ -83,6 +82,11 @@ def askUserPreferences():
         with st.status("Updating your preferences", expanded=False) as status:
             st.info("We are updating your preferences. You can change it anytime, in your profile section")
             if pushPreferences(sep.join(technique), sep.join(diet), sep.join(allergens), sep.join(dislikes), efforts, int(ss.user_instance.user_id)):
+                ss.preferences = {
+                    "technique": sep.join(technique), "diet": sep.join(diet),
+                    "allergy": sep.join(allergens), "dislikes": sep.join(dislikes),
+                    "efforts": efforts,
+                }
                 time.sleep(2)
                 status.update(label="Upload completed", state="complete", expanded=False)
                 ss.userPref = True
@@ -92,7 +96,10 @@ def askUserPreferences():
                 st.stop()
 
 @st.dialog("Please update your credentials information:")
-def update_dialog(email=ss.user_instance.email):
+def update_dialog(email=None):
+    ss_user = st.session_state.user_instance
+    if email is None:
+        email = ss_user.email
     # Defining gender dictionnary for user informations
     gender_dict = {
         "Male": "M",

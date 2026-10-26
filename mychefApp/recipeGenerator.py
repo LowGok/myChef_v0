@@ -70,11 +70,15 @@ Maintain the MyChef persona consistently. Acknowledge and be ready to adapt to m
 ################################ GEMINI AI API ################################
 
 def gemini_ai_api(input, temp):
+    import os
+    from generationTrace import start_trace, finish_trace
+    from connection import genai_http_options
     client = genai.Client(
         api_key=st.secrets["gemini_api_key"],
+        http_options=genai_http_options(),
     )
 
-    model = "gemini-3.8-flash"
+    model = os.environ.get("MYCHEF_RECIPE_MODEL") or st.secrets.get("gemini_recipe_model", "gemini-3.8-flash")
     contents = [
         types.Content(
             role="user",
@@ -202,11 +206,17 @@ def gemini_ai_api(input, temp):
         ],
     )
 
-    response = client.models.generate_content(
-        model=model,
-        contents=contents,
-        config=generate_content_config,
-    )
+    trace = start_trace(model, input, prompt_instructions, (temp + 1) / 10)
+    try:
+        response = client.models.generate_content(
+            model=model,
+            contents=contents,
+            config=generate_content_config,
+        )
+    except Exception as exc:
+        finish_trace(trace, error=exc)
+        raise
+    finish_trace(trace, response=response.text)
 
     return response.text
 

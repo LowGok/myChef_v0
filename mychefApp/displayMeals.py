@@ -87,7 +87,7 @@ def mealCards():
             for i in range(column_in_row):
                 with cols[i]:
                     row = current_col
-                    st.subheader(weekDays[current_col])
+                    st.subheader(weekDays.get(current_col, f"Meal {current_col + 1}"))
                     if weeklyPlan[current_col]["recipeimg"]:
                         st.image(image=weeklyPlan[current_col]["recipeimg"], caption=weeklyPlan[current_col]['recipetitle'].ljust(65-len(weeklyPlan[current_col]['recipetitle'])), use_container_width=True, width=300)
                     else:

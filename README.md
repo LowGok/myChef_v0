@@ -1,5 +1,52 @@
 # MyChef Web App - Version 0
 
+## Run locally
+
+Use Python 3.12 and run these commands from the repository root:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-dev.txt
+python -m playwright install chromium
+make run
+```
+
+Copy `.streamlit/secrets.example.toml` to `.streamlit/secrets.toml` and fill in
+the service configuration locally. The secrets file is ignored by Git.
+
+## Automated tests
+
+`make test` runs offline regression tests and Streamlit page checks. It skips
+the live test. To exercise the real browser, database, Gemini and Cloudinary:
+
+```bash
+make test-live
+```
+
+The live test reads an existing account from the local `[e2e]` secrets section.
+It generates one meal and stores its menu, ingredients and image. Use a test
+account. To create and reuse a dedicated synthetic account instead:
+
+```bash
+MYCHEF_E2E_CREATE_ACCOUNT=1 make test-live
+```
+
+Browser screenshots, the model request and raw response, and the test result
+are saved under ignored `test-results/`. A locally generated account is retained
+under ignored `.test-artifacts/` for subsequent test runs. Failures in the app
+fail the test; a skipped live test does not establish that providers work.
+
+For an environment with an unavailable IPv6 route, set `MYCHEF_E2E_IPV4=1` for
+the live test. `MYCHEF_E2E_CHROMIUM` can select an existing Chromium executable.
+`MYCHEF_RECIPE_MODEL` and `MYCHEF_IMAGE_MODEL` select explicit model overrides.
+The result records the recipe model used. When image quota is unavailable,
+the menu must still render with a visible warning and placeholder. Set
+`MYCHEF_E2E_REQUIRE_IMAGE=1` to require successful image generation and upload too.
+
+The [SQLAlchemy migration draft](docs/specs/sqlalchemy-orm.md) describes the ORM
+and transaction changes proposed after the product checks.
+
 The version represent the crash test of the app. 
 The function of this app is to provide a visual interface to the weekly meal generated for the communication.
 

@@ -1,7 +1,6 @@
 import streamlit as st
 import bcrypt
 from sqlalchemy.sql import text
-# import pandas as pd # Check whether this makes app crash or not // if not then remove
 import time
 from db_fetch_functions import fetch_recipes_ingredients, fetch_user_recipes
 from connection import init_connection
@@ -40,9 +39,6 @@ def fetch_user_info(email):
                 dislikes, 
                 lastmeal, 
                 haspref, 
-                allergens, 
-                diet, 
-                dislikes, 
                 cooking_technique, 
                 cooking_efforts 
             FROM 
@@ -236,12 +232,11 @@ def register():
                 st.warning("Passwords must match! Please check if there is no typos.")
 
 # Authentication function for login
-def authenticate(cookieController):
+def authenticate():
     """User are being signed in after credential verification protocol with database user informations"""
     with st.form("Login", enter_to_submit=True):
         email = st.text_input(label="Enter your email:", type="default", placeholder="Enter your email").lower()
         password = st.text_input(label="Enter your password:", type="password", placeholder="Enter your password")
-        remember_me = st.checkbox("Remember Me")
         if st.form_submit_button("Login", use_container_width=True):
             if credentials(email=email, password=password):
                 # Useless design for database communication waiting time
@@ -259,7 +254,6 @@ def authenticate(cookieController):
                 st.success("Logged in successfully!")
                 # Fetching user info on db
                 if fetch_user_info(email=email):
-                    cookieController.set("logged_in_user", email)
                     st.session_state["authenticated"] = True
                     st.session_state["email"] = email
                     st.rerun()
@@ -268,10 +262,8 @@ def authenticate(cookieController):
             else: 
                 st.error("Invalid email or password...")
 
-def logout(cookieController):
+def logout():
     # Delete all the items in Session state
-    if cookieController.get("logged_in_user"):
-        cookieController.remove("logged_in_user")
     for key in st.session_state.keys():
         del st.session_state[key]
     fetch_user_recipes.clear()

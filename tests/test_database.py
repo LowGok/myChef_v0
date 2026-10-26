@@ -1,18 +1,20 @@
 from datetime import date
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import pandas as pd
 import pytest
 from sqlalchemy import create_engine, text
+from streamlit.connections import SQLConnection
 
 import db_fetch_functions as reads
 import db_insert_functions as writes
 
 
 @pytest.fixture
-def database(monkeypatch):
-    engine = create_engine("sqlite://")
+def database(monkeypatch, tmp_path):
+    connection = SQLConnection("test", url=f"sqlite:///{tmp_path / 'test.db'}")
+    engine = connection._instance
     with engine.begin() as conn:
         conn.execute(text("""CREATE TABLE users (
             user_id INTEGER PRIMARY KEY, firstname TEXT, lastname TEXT,
@@ -35,19 +37,8 @@ def database(monkeypatch):
         conn.execute(text("""INSERT INTO ingredients VALUES
             (10, 1, 'g', 'flour'), (20, 99, 'g', 'private ingredient')"""))
 
-    class Connection:
-        @property
-        def session(self):
-            from sqlalchemy.orm import Session
-            return Session(engine)
-
-        def query(self, query, *, params, **kwargs):
-            with engine.connect() as conn:
-                return pd.read_sql_query(text(query) if isinstance(query, str) else query,
-                                         conn, params=params)
-
-    monkeypatch.setattr(writes, "init_connection", Connection)
-    monkeypatch.setattr(reads, "init_connection", Connection)
+    monkeypatch.setattr(writes, "init_connection", lambda: connection)
+    monkeypatch.setattr(reads, "init_connection", lambda: connection)
     monkeypatch.setattr(writes.st, "error", Mock())
     reads.fetch_user_recipes.clear()
     reads.fetch_recipes_ingredients.clear()
@@ -93,6 +84,16 @@ def test_recipe_storage_never_defaults_to_account_one(monkeypatch):
     monkeypatch.setattr(writes.st, "error", Mock())
     assert not writes.databaseRecipesStorage({"recipes": [{"Recipe Title": "Soup"}]})
     connect.assert_not_called()
+
+
+def test_repeated_generations_get_distinct_positive_bigint_ids(monkeypatch):
+    conn = MagicMock()
+    monkeypatch.setattr(writes, "init_connection", lambda: conn)
+    payload = {"recipes": [{"Recipe Title": "Soup"}]}
+    first = writes.databaseRecipesStorage(payload, userId=1)["Soup"]
+    second = writes.databaseRecipesStorage(payload, userId=1)["Soup"]
+    assert first != second
+    assert 0 < first < 2**63 and 0 < second < 2**63
 
 
 def test_week_spanning_new_year_excludes_other_years(database):

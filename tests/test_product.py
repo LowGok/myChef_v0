@@ -1,5 +1,9 @@
 from pathlib import Path
 from unittest.mock import Mock
+from unittest.mock import MagicMock
+
+import pytest
+from google.genai.errors import ClientError
 
 from streamlit.testing.v1 import AppTest
 
@@ -32,4 +36,63 @@ def test_failed_image_save_cannot_report_success(monkeypatch):
     monkeypatch.setattr(generateMealPlans, "uploadImageToCloud", Mock(return_value={
         "public_id": "image-1", "secure_url": "https://example.com/image.jpg"}))
     monkeypatch.setattr(generateMealPlans, "databaseImageStorage", Mock(return_value=False))
-    assert not generateMealPlans.generateImage(10, "carrot")
+    assert not generateMealPlans.generateImage(10, "carrot", meal_title="Carrot soup")
+    generateMealPlans.imageGenerator.assert_called_once_with(meal="Carrot soup", ingredient_list="carrot")
+
+
+def test_quota_failure_is_actionable_and_does_not_replay(monkeypatch):
+    class Session(dict):
+        __getattr__ = dict.__getitem__
+
+    class Stopped(BaseException):
+        pass
+
+    state = Session(mealPreferences={"days": ["Monday"], "total_time": "30 min",
+                    "adults": 2, "childs": None, "budget": "Medium", "creativity": 8},
+                    preferences={"technique": "pan", "diet": "", "allergy": "",
+                                 "dislikes": "", "efforts": "quick"})
+    monkeypatch.setattr(generateMealPlans.st, "session_state", state)
+    monkeypatch.setattr(generateMealPlans.st, "status", MagicMock())
+    monkeypatch.setattr(generateMealPlans.st, "error", Mock())
+    monkeypatch.setattr(generateMealPlans.st, "stop", Mock(side_effect=Stopped))
+    monkeypatch.setattr(generateMealPlans.time, "sleep", Mock())
+    provider = Mock(side_effect=ClientError(429, {"error": {"message": "Quota exceeded"}}))
+    monkeypatch.setattr(generateMealPlans, "gemini_ai_api", provider)
+    with pytest.raises(Stopped):
+        generateMealPlans.generateMealPlan(1)
+    provider.assert_called_once()
+    assert "quota" in generateMealPlans.st.error.call_args.args[0].lower()
+    assert "mealPreferences" not in state
+
+
+def test_image_quota_does_not_hide_a_saved_menu(monkeypatch):
+    import json
+
+    class Session(dict):
+        __getattr__ = dict.__getitem__
+        __delattr__ = dict.__delitem__
+
+    class Rerun(BaseException):
+        pass
+
+    state = Session(mealPreferences={"days": ["Monday"], "total_time": "30 min",
+                    "adults": 2, "childs": None, "budget": "Medium", "creativity": 8},
+                    preferences={"technique": "pan", "diet": "", "allergy": "",
+                                 "dislikes": "", "efforts": "quick"},
+                    user_instance=object(), email="test-account@example.test")
+    monkeypatch.setattr(generateMealPlans.st, "session_state", state)
+    monkeypatch.setattr(generateMealPlans.st, "status", MagicMock())
+    monkeypatch.setattr(generateMealPlans.st, "rerun", Mock(side_effect=Rerun))
+    monkeypatch.setattr(generateMealPlans.time, "sleep", Mock())
+    monkeypatch.setattr(generateMealPlans, "gemini_ai_api", Mock(return_value=json.dumps({"recipes": [{
+        "Recipe Title": "Soup", "Ingredients List": [{"Ingredient Name": "Carrot"}]}]})))
+    monkeypatch.setattr(generateMealPlans, "databaseRecipesStorage", Mock(return_value={"Soup": 42}))
+    monkeypatch.setattr(generateMealPlans, "databaseIngredientsStorage", Mock(return_value=True))
+    monkeypatch.setattr(generateMealPlans, "generateImage", Mock(side_effect=ClientError(429, {"error": {"message": "Quota"}})))
+    monkeypatch.setattr(generateMealPlans, "fetch_user_info", Mock(return_value=True))
+    with pytest.raises(Rerun):
+        generateMealPlans.generateMealPlan(1)
+    assert "Images are unavailable" in state["image_generation_notice"]
+    generateMealPlans.databaseRecipesStorage.assert_called_once()
+    generateMealPlans.databaseIngredientsStorage.assert_called_once()
+    generateMealPlans.fetch_user_info.assert_called_once()
