@@ -3,6 +3,8 @@ import os
 import cloudinary
 import cloudinary.uploader
 import streamlit as st
+import requests
+from urllib.parse import quote
 
 def imageGenerator(meal, ingredient_list):
     client = genai.Client(api_key=st.secrets["gemini_api_key"])

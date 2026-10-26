@@ -2,13 +2,12 @@ import streamlit as st
 from sqlalchemy.sql import text
 import pandas as pd
 from datetime import date
-from connection import init_connection
+from connection import init_connection, with_db_retry
 
-ss_user = st.session_state.user_instance
-ss = st.session_state
+@with_db_retry(max_retries=3)
 def databaseRecipesStorage(recipesData, userId=1):
     """The function takes recipesData already JSON parsed 
-    and deconstruct it to store it in the database"""
+    and deconstructs it to store it in the database"""
     if userId and recipesData:
         # Insert SQL scripts
         insert_sql = """
@@ -43,10 +42,9 @@ def databaseRecipesStorage(recipesData, userId=1):
             :isMeatOrFish,
             :totalTime
         );
-        """ # To insert MyChefTips later
+        """
         
-        # # Loading JSON data
-        recipes = recipesData['recipes']
+        recipes = recipesData.get('recipes', [])
 
         # Defining date in int for meal_id
         today = date.today()
@@ -56,43 +54,38 @@ def databaseRecipesStorage(recipesData, userId=1):
         # Establishing connection with database
         conn = init_connection()
         with conn.session as s:
-            try:
-                for i, recipe in enumerate(recipes):
-                    meal_data = {
-                        "creator_id": userId,
-                        "meal_id": int(str_date + str(i) + str(userId)), # The meal ID is a composition of the meal number, the date and the user ID
-                        "creationDate": today, # Stores the date of the creation of the recipes to verify if user has created a meal today
-                        "recipeTitle": recipe.get("Recipe Title"),
-                        "yield": recipe.get("Yield"), 
-                        "prepTime": recipe.get("Prep time"),
-                        "cookTime": recipe.get("Cook time"),
-                        "myChefNotes": recipe.get("MyChef Note"),
-                        "equipment": recipe.get("Equipment"),
-                        "instructions": recipe.get("Instructions"),
-                        # "myChefTips": json.dumps(recipe.get("MyChef Tips")),
-                        "allergens": recipe.get("Allergens", []), # Provide empty list if key not found
-                        "allergensSafetyNote": recipe.get("Allergen Safety Note"),
-                        "isMeatOrFish": recipe.get("Is Meat Or Fish"),
-                        "totalTime": recipe.get("Total time")
-                    }
-                    meal_id_dict[recipe.get("Recipe Title")] = int(str_date + str(i) + str(userId)) # Defining a dictionnary of meal recipes and their ID for ingredients Database insertion
-                    s.execute(text(insert_sql), meal_data)
-                    s.execute(text("UPDATE users SET lastmeal = :today WHERE user_id = :user_id"), {"user_id": userId, "today": date.today()})
-                s.commit()
-                # st.success(f"Successfully inserted {len(recipes)} recipes for User ID: {1}") // Not needed for user use
-            except Exception as e:
-                st.error("An error occured. Please contact us: admin@gkldevelopment.com")
-                st.error(e)
-                s.rollback()
+            for i, recipe in enumerate(recipes):
+                meal_id = int(str_date + str(i) + str(userId))
+                meal_data = {
+                    "creator_id": userId,
+                    "meal_id": meal_id,
+                    "creationDate": today,
+                    "recipeTitle": recipe.get("Recipe Title"),
+                    "yield": recipe.get("Yield"), 
+                    "prepTime": recipe.get("Prep time"),
+                    "cookTime": recipe.get("Cook time"),
+                    "myChefNotes": recipe.get("MyChef Note"),
+                    "equipment": recipe.get("Equipment"),
+                    "instructions": recipe.get("Instructions"),
+                    "allergens": recipe.get("Allergens", []),
+                    "allergensSafetyNote": recipe.get("Allergen Safety Note"),
+                    "isMeatOrFish": recipe.get("Is Meat Or Fish"),
+                    "totalTime": recipe.get("Total time")
+                }
+                meal_id_dict[recipe.get("Recipe Title")] = meal_id
+                s.execute(text(insert_sql), meal_data)
+                s.execute(text("UPDATE users SET lastmeal = :today WHERE user_id = :user_id"), {"user_id": userId, "today": today})
+            s.commit()
         return meal_id_dict
     else:
         st.error("Database meal storage error. Contact admin@gkldevelopment.com or try again.")
+        return None
 
+@with_db_retry(max_retries=3)
 def databaseIngredientsStorage(recipesData, meal_id_dict, userId=1):
     """The function takes recipesData already JSON parsed 
-    and deconstruct it to store it in the database"""
-    if userId and recipesData:
-        # Insert SQL scripts
+    and deconstructs it to store it in the database"""
+    if userId and recipesData and meal_id_dict:
         insert_sql = """
         INSERT INTO ingredients (
             pk_ingredients,
@@ -111,70 +104,66 @@ def databaseIngredientsStorage(recipesData, meal_id_dict, userId=1):
         );
         """
         
-        # # Loading JSON data
-        # data = json.loads(ingredientsData)
-        recipes = recipesData['recipes']
-
-        # Defining date in int for meal_id
+        recipes = recipesData.get('recipes', [])
         today = date.today()
-        # str_date = today.strftime("%Y%m%d")
         
-        # Establishing connection with database
         conn = init_connection()
         with conn.session as s:
-            try:
-                # JSON Normalizing JSON
-                ingredients_df = pd.json_normalize(
-                            recipes,
-                            record_path='Ingredients List',
-                            meta=['Recipe Title'], # To match respective ID from meal_id_dict
-                            sep='.',
-                            errors='ignore'
-                        )
-                # Renaming columns
-                ingredients_df = ingredients_df.rename(columns={
-                    'Quantity': 'quantity',
-                    'Unit': 'unit',
-                    'Ingredient Name': 'ingredient_name'
-                })
-                # Adding date to ingredient insertion
-                ingredients_df['date'] = today
-                # Adding the meal id key to the ingredient
-                ingredients_df['recipe_id'] = ingredients_df['Recipe Title'].map(meal_id_dict)
-                # Selecting the column in correct order for db insertion
-                records_to_insert = ingredients_df[[
-                    'recipe_id',
-                    'quantity',
-                    'unit',
-                    'ingredient_name',
-                    'date'
-                    ]].to_dict(orient='records')
-                # Inserting ingredients into DB.
-                s.execute(text(insert_sql), records_to_insert)
-                s.commit()
-                return True
-            except Exception as e:
-                st.error("An error occured. Please contact us: admin@gkldevelopment.com")
-                st.error(e)
-                s.rollback()
+            ingredients_df = pd.json_normalize(
+                recipes,
+                record_path='Ingredients List',
+                meta=['Recipe Title'],
+                sep='.',
+                errors='ignore'
+            )
+            ingredients_df = ingredients_df.rename(columns={
+                'Quantity': 'quantity',
+                'Unit': 'unit',
+                'Ingredient Name': 'ingredient_name'
+            })
+            ingredients_df['date'] = today
+            ingredients_df['recipe_id'] = ingredients_df['Recipe Title'].map(meal_id_dict)
+            records_to_insert = ingredients_df[[
+                'recipe_id',
+                'quantity',
+                'unit',
+                'ingredient_name',
+                'date'
+            ]].to_dict(orient='records')
+            s.execute(text(insert_sql), records_to_insert)
+            s.commit()
+            return True
     else:
         st.error("Database meal storage error. Contact admin@gkldevelopment.com or try again.")
-    return True
+        return False
 
-def updateCredentials(firstname=ss_user.firstName, lastname=ss_user.lastName, age=ss_user.birthdate, username=ss_user.userName):
+@with_db_retry(max_retries=3)
+def updateCredentials(firstname=None, lastname=None, age=None, username=None, userId=None):
     """
-    Pushing preferences into user table.
+    Pushing preferences into user table with dynamic session_state fallback.
     """
-    if firstname and lastname and age:
+    user = getattr(st.session_state, "user_instance", None)
+    if userId is None and user:
+        userId = getattr(user, "user_id", None)
+    if firstname is None and user:
+        firstname = getattr(user, "firstName", None)
+    if lastname is None and user:
+        lastname = getattr(user, "lastName", None)
+    if age is None and user:
+        age = getattr(user, "birthdate", None)
+    if username is None and user:
+        username = getattr(user, "userName", None)
+
+    if firstname and lastname and age and userId:
         variables_dict = {
             "firstname": firstname,
             "lastname": lastname,
             "age": age,
             "username": username,
-            "user_id": int(ss.user_instance.user_id)
+            "user_id": int(userId)
         }
 
-        preferencesQuery = ("""
+        preferencesQuery = """
             UPDATE users
             SET
                 firstname = :firstname,
@@ -183,22 +172,17 @@ def updateCredentials(firstname=ss_user.firstName, lastname=ss_user.lastName, ag
                 username = :username
             WHERE 
                 user_id = :user_id
-        """)
-        # Establishing connection with database
+        """
         conn = init_connection()
         with conn.session as s:
-            try:
-                s.execute(text(preferencesQuery), params=variables_dict)
-                s.commit()
-                return True
-            except Exception as e:
-                st.error("An error occured. Please contact us: admin@gkldevelopment.com")
-                st.error(e)
-                s.rollback()
-                st.stop()
+            s.execute(text(preferencesQuery), params=variables_dict)
+            s.commit()
+            return True
     else:
-        st.error("Invalid UserId, please contact us: admin@gkldevelopment.com")
+        st.error("Invalid UserId or credentials, please contact us: admin@gkldevelopment.com")
+        return False
 
+@with_db_retry(max_retries=3)
 def pushPreferences(technique, diet, allergens, dislikes, efforts, userId):
     """
     Pushing preferences into user table.
@@ -213,7 +197,7 @@ def pushPreferences(technique, diet, allergens, dislikes, efforts, userId):
             "user_id": userId
         }
 
-        preferencesQuery = ("""
+        preferencesQuery = """
             UPDATE users
             SET
                 allergens = :allergens,
@@ -224,35 +208,34 @@ def pushPreferences(technique, diet, allergens, dislikes, efforts, userId):
                 haspref = 'True'
             WHERE 
                 user_id = :user_id
-        """)
-        # Establishing connection with database
+        """
         conn = init_connection()
         with conn.session as s:
-            try:
-                s.execute(text(preferencesQuery), params=variables_dict)
-                s.commit()
-                return True
-            except Exception as e:
-                st.error("An error occured. Please contact us: admin@gkldevelopment.com")
-                st.error(e)
-                s.rollback()
-                st.stop()
+            s.execute(text(preferencesQuery), params=variables_dict)
+            s.commit()
+            return True
     else:
         st.error("Invalid UserId, please contact us: admin@gkldevelopment.com")
+        return False
 
-def databaseImageStorage(cloudinary_pub_id, image_url, meal_id, user_id=st.session_state.user_instance.user_id):
+@with_db_retry(max_retries=3)
+def databaseImageStorage(cloudinary_pub_id, image_url, meal_id, user_id=None):
     """
-    Stores the image (public ID, and URL) in the Neon database.
+    Stores the image (public ID, and URL) in the Neon database with dynamic user_id fallback.
     """
+    if user_id is None:
+        user = getattr(st.session_state, "user_instance", None)
+        user_id = getattr(user, "user_id", None) if user else None
+
     if cloudinary_pub_id and image_url and meal_id and user_id:
-        variables_dict =  {
+        variables_dict = {
             "recipeimg": image_url,
             "cloudinary_public_id": cloudinary_pub_id,
             "meal_id": meal_id,
             "user_id": int(user_id)
         }
 
-        push_query = ("""
+        push_query = """
             UPDATE meals 
             SET
                 recipeimg = :recipeimg,
@@ -260,18 +243,12 @@ def databaseImageStorage(cloudinary_pub_id, image_url, meal_id, user_id=st.sessi
             WHERE 1=1
                 AND meal_id = :meal_id
                 AND creator_id = :user_id;
-        """)
-        # Establishing connection with database
+        """
         conn = init_connection()
         with conn.session as s:
-            try:
-                s.execute(text(push_query), params=variables_dict)
-                s.commit()
-                return True
-            except Exception as e:
-                st.error("An error occured. Please contact us: admin@gkldevelopment.com")
-                st.error(e)
-                s.rollback()
-                st.stop()
+            s.execute(text(push_query), params=variables_dict)
+            s.commit()
+            return True
     else:
         st.error("Invalid UserId, please contact us: admin@gkldevelopment.com")
+        return False
