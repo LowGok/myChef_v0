@@ -129,7 +129,7 @@ def generateMealPlan(userId):
             # Saving shopping list
             mealId = databaseRecipesStorage(recipesData=recipesData, userId=user)
             if mealId:
-                record_stage("recipes_saved", count=len(mealId))
+                record_stage("recipes_saved", count=len(mealId), meal_ids=list(mealId.values()))
                 st.write("Crafting your shopping list...")
             else:
                 status.update(label="Failed to save your meal plan. Please try again", state="error", expanded=False)

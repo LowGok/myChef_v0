@@ -220,8 +220,11 @@ def test_live_menu_generation(live_app):
             recipes = json.loads(traces[-1].read_text())["recipes"]
             assert len(recipes) == 1
             assert recipes[0]["Ingredients List"] and recipes[0]["Instructions"]
-            card = page.get_by_test_id("stColumn").filter(has_text=recipes[0]["Recipe Title"])
-            card.last.get_by_role("button", name="Cook Now!").click()
+            events = [json.loads(line) for line in (artifacts / "generations/events.jsonl").read_text().splitlines()]
+            saved = [event for event in events if event["stage"] == "recipes_saved"
+                     and datetime.fromisoformat(event["time"]).timestamp() >= generation_started]
+            meal_id = saved[-1]["meal_ids"][0]
+            page.locator(f".st-key-{meal_id}").get_by_role("button", name="Cook Now!").click()
             wait_for_outcome(page, page.get_by_role("tab", name="Instructions", exact=True))
             page.get_by_role("tab", name="Instructions", exact=True).click()
             expect(page.get_by_text(recipes[0]["Instructions"][0], exact=False)).to_be_visible()
@@ -237,9 +240,9 @@ def test_live_menu_generation(live_app):
                     meals = conn.execute(text("""
                         SELECT m.meal_id, m.recipeimg FROM meals m
                         JOIN users u ON u.user_id=m.creator_id
-                        WHERE u.email=:email AND m.recipetitle=:title
+                        WHERE u.email=:email AND m.recipetitle=:title AND m.meal_id=:meal_id
                         ORDER BY m.creationdate DESC
-                    """), {"email": account["email"], "title": recipes[0]["Recipe Title"]}).mappings().all()
+                    """), {"email": account["email"], "title": recipes[0]["Recipe Title"], "meal_id": meal_id}).mappings().all()
                     assert meals, "Generated meal was not persisted for the test account"
                     expected_names = {item["Ingredient Name"] for item in recipes[0]["Ingredients List"]}
                     matching = []
