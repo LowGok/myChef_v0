@@ -1,6 +1,0 @@
-{
-    "makefile.configureOnOpen": false,
-    "python.analysis.extraPaths": [
-        "./mychefApp/ai_api"
-    ]
-}

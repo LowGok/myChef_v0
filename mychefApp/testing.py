@@ -4,7 +4,6 @@ import pandas as pd
 import json, time
 from recipeGenerator import gemini_ai_api
 from db_insert_functions import databaseRecipesStorage, databaseIngredientsStorage
-from streamlit_cookies_controller import CookieController
 
 # Defining default prompt text - no restrictions
 prompt_text = """Number of recipes: 7

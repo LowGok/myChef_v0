@@ -1,0 +1,37 @@
+name: Checks
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 6 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  dependencies-and-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: true
+      - name: Install verified dependency locks
+        run: uv sync --locked
+      - name: Check installed dependency compatibility
+        run: uv pip check
+      - name: Check dependency locks
+        run: make lock-check
+      - name: Run offline product tests
+        run: make test
+      - name: Audit dependencies against current advisories
+        run: make audit

@@ -95,6 +95,8 @@ def credentials(email, password):
     """Verifying users credentials for authentication"""
     if not email or not password:
         return False
+    if len(password.encode("utf-8")) > 72:
+        return False
     verification_query = ("""
         SELECT password FROM users WHERE email = :email
     """)
@@ -116,6 +118,9 @@ def credentials(email, password):
 def registration_protocol(email, password, firstname, lastname, sex, birthdate, username, hasmeal=False):
     """Registration protocol for user inscription in database"""
     if not email or not password:
+        return False
+    if len(password.encode("utf-8")) > 72:
+        st.warning("Passwords must be at most 72 UTF-8 bytes. Choose a shorter password.")
         return False
     usr_variable_dict = {
         "email": email,
@@ -226,7 +231,9 @@ def register():
         password = st.text_input(label="Enter your password:", type="password", placeholder="Enter your password")
         confirm_pwd = st.text_input(label="Confirm your password:", type="password", placeholder="Confirm your password")
         if st.form_submit_button("Register now!", use_container_width=True):    
-            if password == confirm_pwd: 
+            if len(password.encode("utf-8")) > 72:
+                st.warning("Passwords must be at most 72 UTF-8 bytes. Choose a shorter password.")
+            elif password == confirm_pwd:
                 registration_dialog(email=email, password=password)
             else:
                 st.warning("Passwords must match! Please check if there is no typos.")

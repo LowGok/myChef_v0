@@ -7,7 +7,8 @@ covers:
   - mychefApp/
   - migrations/
   - alembic.ini
-  - requirements.txt
+  - pyproject.toml
+  - uv.lock
   - tests/
   - pytest.ini
   - Makefile
@@ -17,9 +18,9 @@ covers:
 
 ## Context
 
-The application already depends on SQLAlchemy 2.0.41, but uses handwritten SQL
-through Streamlit's SQLConnection. There are no mapped models or migrations
-(`requirements.txt`; `mychefApp/db_insert_functions.py:13`;
+At the imported baseline, the application depended on SQLAlchemy 2.0.41 and used
+handwritten SQL through Streamlit's SQLConnection. There are no mapped models or migrations
+(`git show c0d5775:requirements.txt`; `mychefApp/db_insert_functions.py:13`;
 `git ls-files '*alembic*' '*migration*'` returned no paths at `c0d5775`).
 
 The database schema was inspected through SQLAlchemy Inspector on 2026-10-26
