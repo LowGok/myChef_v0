@@ -5,6 +5,7 @@
   "timezone": "Europe/Brussels",
   "dependencyDashboard": true,
   "automerge": false,
+  "semanticCommits": "enabled",
   "separateMajorMinor": true,
   "lockFileMaintenance": {"enabled": true},
   "customManagers": [
