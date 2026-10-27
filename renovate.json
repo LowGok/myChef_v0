@@ -1,6 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended", ":pinDigests"],
+  "extends": ["config:recommended"],
+  "pinDigests": true,
   "timezone": "Europe/Brussels",
   "dependencyDashboard": true,
   "automerge": false,
@@ -21,10 +22,6 @@
       "matchManagers": ["pep621"],
       "matchUpdateTypes": ["minor", "patch"],
       "groupName": "Python compatible updates"
-    },
-    {
-      "matchManagers": ["github-actions"],
-      "pinDigests": true
     }
   ]
 }
