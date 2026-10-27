@@ -1,6 +1,8 @@
 from pathlib import Path
 from unittest.mock import Mock
 from unittest.mock import MagicMock
+from types import SimpleNamespace
+import sys
 
 import pytest
 from google.genai.errors import ClientError
@@ -11,6 +13,19 @@ import authentication
 import generateMealPlans
 
 
+@pytest.mark.parametrize("password", ["a" * 73, "é" * 37])
+def test_oversized_password_is_rejected_without_database_access(monkeypatch, password):
+    connection = Mock()
+    monkeypatch.setattr(authentication, "init_connection", connection)
+    warning = Mock()
+    monkeypatch.setattr(authentication.st, "warning", warning)
+    assert authentication.credentials("test@example.test", password) is False
+    assert authentication.registration_protocol("test@example.test", password,
+            "Test", "User", "Other", "1990-01-01", "test_user") is False
+    connection.assert_not_called()
+    assert "72" in warning.call_args.args[0]
+
+
 def test_signed_out_page_starts_without_secrets():
     app = AppTest.from_file(str(Path("mychefApp/main.py").resolve())).run()
     assert not app.exception
@@ -18,10 +33,9 @@ def test_signed_out_page_starts_without_secrets():
 
 
 def test_email_cookie_cannot_authenticate(monkeypatch):
-    import streamlit_cookies_controller
     controller = Mock()
     controller.get.return_value = "victim@example.com"
-    monkeypatch.setattr(streamlit_cookies_controller, "CookieController", lambda: controller)
+    monkeypatch.setitem(sys.modules, "streamlit_cookies_controller", SimpleNamespace(CookieController=lambda: controller))
     fetch = Mock(return_value=True)
     monkeypatch.setattr(authentication, "fetch_user_info", fetch)
     app = AppTest.from_file(str(Path("mychefApp/main.py").resolve())).run()

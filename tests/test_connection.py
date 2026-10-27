@@ -2,8 +2,17 @@ from unittest.mock import Mock
 
 import pytest
 from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy import create_engine
 
 import connection
+
+
+def test_default_postgresql_driver_loads_without_connecting():
+    engine = create_engine("postgresql://example.invalid/mychef")
+    try:
+        assert engine.driver == "psycopg"
+    finally:
+        engine.dispose()
 
 
 def operation_mock(**kwargs):

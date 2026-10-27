@@ -1,7 +1,6 @@
 {
-  "name": "Python 3",
-  // Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
-  "image": "mcr.microsoft.com/devcontainers/python:1-3.11-bullseye",
+  "name": "MyChef Python 3.15",
+  "image": "python:3.15.2-slim-trixie@sha256:96c27ba7394e245a1dd0830089037a57dffbe25b51d2bfdd2feef89194ee934f",
   "customizations": {
     "codespaces": {
       "openFiles": [
@@ -17,9 +16,9 @@
       ]
     }
   },
-  "updateContentCommand": "[ -f packages.txt ] && sudo apt update && sudo apt upgrade -y && sudo xargs apt install -y <packages.txt; [ -f requirements.txt ] && pip3 install --user -r requirements.txt; pip3 install --user streamlit; echo '✅ Packages installed and Requirements met'",
+  "postCreateCommand": "python scripts/bootstrap_dev.py",
   "postAttachCommand": {
-    "server": "streamlit run mychefApp/main.py --server.enableCORS false --server.enableXsrfProtection false"
+    "server": "uv run --locked streamlit run mychefApp/main.py --server.address=0.0.0.0"
   },
   "portsAttributes": {
     "8501": {

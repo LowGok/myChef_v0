@@ -204,10 +204,10 @@ def test_live_menu_generation(live_app):
             dialog = page.get_by_role("dialog")
             expect(dialog).to_be_visible()
             dialog.get_by_role("button", name="Monday", exact=True).click()
-            dialog.get_by_role("button", name="30 min", exact=True).click()
+            dialog.get_by_text("30 min", exact=True).click()
             # Adults and children have separate pill groups.
-            dialog.get_by_role("button", name="2", exact=True).first.click()
-            dialog.get_by_role("button", name="Medium", exact=True).click()
+            dialog.get_by_text("2", exact=True).first.click()
+            dialog.get_by_text("Medium", exact=True).click()
             generation_started = time.time()
             dialog.get_by_role("button", name="Generate Now!", exact=True).click()
             stage("generation submitted")
